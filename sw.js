@@ -1,6 +1,6 @@
 /* Capitaine 200 — service worker : le site marche hors ligne après la première visite.
    Fichier généré par tools/build_sw.py : la version change dès qu'un fichier change. */
-const VERSION = 'c200-2263d789d3';
+const VERSION = 'c200-ee8fa2fdc2';
 const ASSETS = [
   './',
   'index.html',
