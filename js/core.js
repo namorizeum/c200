@@ -42,7 +42,16 @@
       return { uid: uniq(m.id + '.c.' + h(r + '|' + v)), r, v, f, mod: m };
     });
     m.qcm = m.qcm.map((q) => ({ uid: uniq(m.id + '.q.' + h(q.q + '|' + q.r[0])), q: q.q, r: q.r, e: q.e || '', f: q.f, mod: m }));
+    m._uniq = uniq;
     C.modules.push(m);
+  };
+  // QCM supplémentaires d'une fiche : [question, bonne réponse, [mauvaises réponses], explication facultative]
+  C.plus = function (modId, ficheId, list) {
+    const m = C.modules.find((x) => x.id === modId);
+    if (!m) return;
+    list.forEach(([q, good, wrong, e]) => {
+      m.qcm.push({ uid: m._uniq(m.id + '.q.' + h(q + '|' + good)), q, r: [good, ...wrong], e: e || '', f: ficheId, mod: m });
+    });
   };
   C.gen = function (id, def) { def.id = id; C.gens[id] = def; };
   C.visuel = function (id, def) { def.id = id; C.visuels[id] = def; };
