@@ -5,12 +5,14 @@
   C.modules = [];
   C.gens = {};
   C.visuels = {};
-  C.config = { formation: '2026-11-16', prenom: 'Mehdi' };
+  C.config = { formation: '2026-11-16', prenom: 'Mehdi', version: '24 oct. 2026' };
   C.blocs = [
     { id: 'P1-1', titre: 'Navigation', sous: 'Module P1-1' },
     { id: 'P2-1', titre: 'Navire et sécurité', sous: 'Module P2-1' },
     { id: 'NP-1', titre: 'Réglementation', sous: 'Module NP-1' },
-    { id: '250', titre: 'Mécanicien 250 kW', sous: 'Modules M1-1 et M2-1' }
+    { id: '250', titre: 'Mécanicien 250 kW', sous: 'Modules M1-1 et M2-1' },
+    { id: 'CGO', titre: 'Radio SMDSM', sous: 'Certificat général d\'opérateur' },
+    { id: 'YACHT', titre: 'Module Yacht', sous: 'Capitaine 200 yacht' }
   ];
 
   // Hachage court et stable (FNV-1a) pour donner un identifiant fixe à chaque carte / question

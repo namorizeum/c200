@@ -10,7 +10,7 @@ C200.plus('rdb', 'marques', [
   ['Trois boules superposées : …', 'Navire échoué', ['Navire de déminage', 'NUC', 'Navire au mouillage']],
   ['Boule, bicône, boule : …', 'Navire à capacité de manœuvre restreinte', ['Navire échoué', 'Pêcheur', 'Remorqueur > 200 m']],
   ['Un cylindre : …', 'Navire handicapé par son tirant d\'eau', ['Navire au mouillage', 'Voilier au moteur', 'Pêcheur']],
-  ['Deux cônes réunis par la pointe : …', 'Navire en train de pêcher', ['Remorquage > 200 m', 'Voilier au moteur', 'Navire échoué']],
+  ['Deux cônes réunis par la pointe, et un cône pointe en haut sur le côté tribord : …', 'Navire en pêche, engin déployé à plus de 150 m sur tribord', ['Navire en pêche, engin sur bâbord', 'Voilier au moteur', 'Remorque de plus de 200 m sur tribord']],
   ['Un cône pointe en bas à l\'avant : …', 'Voilier qui avance aussi au moteur', ['Pêcheur', 'Navire échoué', 'Remorqueur']],
   ['Un bicône seul : …', 'Remorquage dont la remorque dépasse 200 m', ['Navire en pêche', 'Navire échoué', 'NUC']],
   ['Un cône pointe en haut sur le côté d\'un pêcheur : …', 'Son engin de pêche s\'étend à plus de 150 m de ce côté', ['Il va virer de ce côté', 'Il est au mouillage', 'Il est en panne']],

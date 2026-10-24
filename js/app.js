@@ -16,28 +16,76 @@
   const cById = new Map(allC.map((c) => [c.uid, c]));
 
   // ================= Sauvegarde =================
-  const KEY = 'c200.v1';
+  // Sans pseudo : la progression reste dans 'c200.v1' (comme avant).
+  // Avec un pseudo : 'c200.p.<clé>' sur l'appareil, et copie dans la base partagée si elle est réglée.
+  const P = C.profils;
+  const LEGACY = 'c200.v1';
+  const ls = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* stockage indisponible */ } },
+    del(k) { try { localStorage.removeItem(k); } catch (e) { /* idem */ } }
+  };
   const blank = () => ({ cards: {}, qcm: {}, fiches: {}, calc: {}, rm: {}, days: {}, exams: [], settings: { nouvelles: 15, theme: 'auto' } });
-  let S = blank();
-  try {
-    const t = localStorage.getItem(KEY);
-    if (t) { const o = JSON.parse(t); S = Object.assign(blank(), o); S.settings = Object.assign(blank().settings, o.settings || {}); }
-  } catch (e) { /* stockage indisponible */ }
+  function normalize(o) { const s = Object.assign(blank(), o || {}); s.settings = Object.assign(blank().settings, (o && o.settings) || {}); return s; }
+  let ME = null;
+  try { const se = JSON.parse(ls.get('c200.session') || 'null'); if (se && se.key) ME = se; } catch (e) { /* pas de session */ }
+  const storeKey = (me = ME) => (me ? 'c200.p.' + me.key : LEGACY);
+  function loadLocal(me = ME) { try { const t = ls.get(storeKey(me)); return t ? normalize(JSON.parse(t)) : blank(); } catch (e) { return blank(); } }
+  let S = loadLocal();
   let saveTimer = null;
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }, 150);
+    saveTimer = setTimeout(() => { ls.set(storeKey(), JSON.stringify(S)); Cloud.schedule(); }, 150);
   }
+  function localAccounts() { try { return JSON.parse(ls.get('c200.comptes') || '{}') || {}; } catch (e) { return {}; } }
+  function cacheAccount(key, acc) { const a = localAccounts(); a[key] = Object.assign({}, a[key] || {}, acc); ls.set('c200.comptes', JSON.stringify(a)); }
+
+  // ---- synchronisation avec la base partagée ----
+  const Cloud = {
+    state: 'off', last: 0, timer: null, dirty: false, busy: false, pulled: 0,
+    on() { return !!ME && P.enabled(); },
+    schedule() {
+      if (!this.on()) return;
+      this.dirty = true;
+      if (this.timer) return;
+      const wait = Math.max(4000, 45000 - (Date.now() - this.last));
+      this.timer = setTimeout(() => { this.timer = null; this.push(); }, wait);
+    },
+    async push() {
+      if (!this.on() || this.busy) return;
+      this.busy = true; this.dirty = false;
+      const me = ME;
+      try {
+        const pk = await P.pack(S); pk.maj = Date.now();
+        await P.api('progres/' + me.key, 'PUT', pk);
+        await P.api('joueurs/' + me.key + '/resume', 'PUT', resume());
+        this.last = Date.now(); this.state = 'ok';
+      } catch (e) { this.state = 'err'; this.dirty = true; }
+      this.busy = false; updateMe();
+    },
+    async pull() {
+      if (!this.on()) return false;
+      try {
+        const o = await P.api('progres/' + ME.key);
+        const R = await P.unpack(o);
+        if (R) { S = normalize(P.merge(S, R)); ls.set(storeKey(), JSON.stringify(S)); }
+        this.state = 'ok'; this.pulled = Date.now();
+        return true;
+      } catch (e) { this.state = 'err'; return false; } finally { updateMe(); }
+    },
+    async sync() { const ok = await this.pull(); if (ok) await this.push(); return ok; },
+    flush() { if (this.dirty && this.on()) { clearTimeout(this.timer); this.timer = null; this.push(); } }
+  };
   function dayStr(d = new Date()) {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
   const today = () => dayStr();
   function addDays(n) { const d = new Date(); d.setDate(d.getDate() + n); return dayStr(d); }
   function activity() { const d = today(); S.days[d] = (S.days[d] || 0) + 1; save(); }
-  function streak() {
+  function streak(st = S) {
     let n = 0; const d = new Date();
-    if (!S.days[dayStr(d)]) d.setDate(d.getDate() - 1);
-    while (S.days[dayStr(d)]) { n++; d.setDate(d.getDate() - 1); }
+    if (!st.days[dayStr(d)]) d.setDate(d.getDate() - 1);
+    while (st.days[dayStr(d)]) { n++; d.setDate(d.getDate() - 1); }
     return n;
   }
   function applyTheme() {
@@ -72,12 +120,12 @@
   }
 
   // ---- maîtrise d'une matière ----
-  function mastery(m) {
+  function mastery(m, st = S) {
     const nf = m.fiches.length, nc = m.cartes.length, nq = m.qcm.length;
     if (!nf && !nc && !nq) return null;
-    const f = nf ? m.fiches.filter((x) => S.fiches[x.uid]).length / nf : 0;
-    const c = nc ? m.cartes.reduce((a, x) => a + Math.min(4, (S.cards[x.uid] || {}).b || 0) / 4, 0) / nc : 0;
-    const q = nq ? m.qcm.filter((x) => (S.qcm[x.uid] || {}).last === 1).length / nq : 0;
+    const f = nf ? m.fiches.filter((x) => st.fiches[x.uid]).length / nf : 0;
+    const c = nc ? m.cartes.reduce((a, x) => a + Math.min(4, (st.cards[x.uid] || {}).b || 0) / 4, 0) / nc : 0;
+    const q = nq ? m.qcm.filter((x) => (st.qcm[x.uid] || {}).last === 1).length / nq : 0;
     const w = (nf ? 0.2 : 0) + (nc ? 0.4 : 0) + (nq ? 0.4 : 0);
     return Math.round(((nf ? 0.2 * f : 0) + (nc ? 0.4 * c : 0) + (nq ? 0.4 * q : 0)) / w * 100);
   }
@@ -143,6 +191,8 @@
       if (p[0] === 'examen') return viewExamSetup(p[1]);
       if (p[0] === 'faibles') return viewFaibles();
       if (p[0] === 'progres') return viewStats();
+      if (p[0] === 'compte') return viewCompte();
+      if (p[0] === 'equipage') return p[1] ? viewJoueur(p[1]) : viewEquipage();
       return viewHome();
     } catch (err) {
       console.error(err);
@@ -179,7 +229,7 @@
     let html = `
       <section class="hero">
         <p class="eyebrow">Capitaine 200 · révision</p>
-        <h1>Bon quart, ${esc(C.config.prenom)}</h1>
+        <h1>Bon quart, ${esc(ME ? ME.pseudo : C.config.prenom)}</h1>
         <p class="count">${countdown()}</p>
         <div class="today">
           <a class="tile" href="#/revision"><span class="tile-n">${due}</span><span class="tile-l">${due > 1 ? 'cartes à revoir' : 'carte à revoir'}</span></a>
@@ -187,6 +237,7 @@
           <a class="tile" href="#/progres"><span class="tile-n">${st}</span><span class="tile-l">${st > 1 ? 'jours de suite' : 'jour de suite'}</span></a>
         </div>
       </section>
+      ${ME ? '' : `<a class="banner" href="#/compte"><b>Choisis ton pseudo</b><span>Ta progression est gardée sous ton nom et l'équipage peut la voir.</span></a>`}
       <div class="search">
         <label for="search" class="sr">Chercher une notion</label>
         <input id="search" type="search" placeholder="Chercher une notion : feu de poupe, marnage, GM…" autocomplete="off">
@@ -285,7 +336,7 @@
         <div class="actions">
           <a class="btn" href="#/m/${m.id}/qcm/10">Série de 10</a>
           <a class="btn ghost" href="#/m/${m.id}/qcm/20">Série de 20</a>
-          <a class="btn ghost" href="#/m/${m.id}/qcm/tout">Toutes (${m.qcm.length})</a>
+          ${m.qcm.length > 60 ? `<a class="btn ghost" href="#/m/${m.id}/qcm/50">Série de 50</a>` : `<a class="btn ghost" href="#/m/${m.id}/qcm/tout">Toutes (${m.qcm.length})</a>`}
           ${ko ? `<a class="btn ghost" href="#/m/${m.id}/qcm/erreurs">Mes erreurs (${ko})</a>` : ''}
         </div>
         ${m.fiches.length ? `<label class="lbl" for="qf">Ou seulement une fiche :</label>
@@ -327,7 +378,8 @@
       <div class="fiche-body">${f.html}</div>
       ${f.src ? `<p class="src">Dans tes cours : ${esc(f.src)}</p>` : ''}
       <div class="actions">
-        ${nq ? `<a class="btn" href="#/m/${m.id}/qcm/fiche-${f.id}">QCM sur cette fiche (${nq})</a>` : ''}
+        ${nq ? `<a class="btn" href="#/m/${m.id}/qcm/fiche-${f.id}">QCM sur cette fiche${nq > 10 ? ' (série de 10)' : ' (' + nq + ')'}</a>` : ''}
+        ${nq > 10 ? `<a class="btn ghost" href="#/m/${m.id}/qcm/fichetout-${f.id}">Toutes ses questions (${nq})</a>` : ''}
         ${nc ? `<a class="btn ghost" href="#/m/${m.id}/cartes/fiche-${f.id}">Cartes de cette fiche (${nc})</a>` : ''}
       </div>
       <nav class="pager">
@@ -440,22 +492,32 @@
   }
 
   // ================= QCM =================
+  // Une série mélange : au plus 30 % d'anciennes erreurs, puis des questions jamais vues,
+  // puis les plus anciennes réussies. Les questions vues dans la dernière demi-heure passent en dernier.
   function pickQuestions(list, n) {
-    const now = Date.now();
-    const score = (q) => {
-      const s = S.qcm[q.uid];
-      if (!s) return 2 + Math.random();
-      if (s.last === 0) return 3 + Math.random();
-      return Math.min(1, (now - (s.t || 0)) / (7 * 864e5)) + Math.random() * 0.5;
-    };
-    return list.map((q) => [score(q), q]).sort((a, b) => b[0] - a[0]).slice(0, n).map((x) => x[1]);
+    const now = Date.now(), RECENT = 30 * 60e3;
+    const st = (q) => S.qcm[q.uid];
+    const recent = (q) => { const s = st(q); return !!s && now - (s.t || 0) < RECENT; };
+    const fresh = list.filter((q) => !recent(q));
+    const errs = U.shuffle(fresh.filter((q) => st(q) && st(q).last === 0));
+    const neu = U.shuffle(fresh.filter((q) => !st(q)));
+    const old = fresh.filter((q) => st(q) && st(q).last === 1).sort((a, b) => (st(a).t || 0) - (st(b).t || 0));
+    const out = [];
+    const take = (arr, k) => { for (const q of arr) { if (out.length >= n || k <= 0) break; if (!out.includes(q)) { out.push(q); k--; } } };
+    take(errs, Math.ceil(n * 0.3));
+    take(neu, n);
+    take(old, n);
+    take(errs, n);
+    take(U.shuffle(list.filter(recent)), n);
+    return out;
   }
   function viewQcmModule(m, arg) {
     setTop(m.titre, 'm/' + m.id + '/qcm-tab'); setNav('home');
     let list;
     if (arg === 'erreurs') list = U.shuffle(m.qcm.filter((q) => (S.qcm[q.uid] || {}).last === 0));
     else if (arg === 'tout') list = U.shuffle(m.qcm);
-    else if (arg && arg.startsWith('fiche-')) list = U.shuffle(m.qcm.filter((q) => q.f === arg.slice(6)));
+    else if (arg && arg.startsWith('fichetout-')) list = U.shuffle(m.qcm.filter((q) => q.f === arg.slice(10)));
+    else if (arg && arg.startsWith('fiche-')) list = U.shuffle(pickQuestions(m.qcm.filter((q) => q.f === arg.slice(6)), 10));
     else list = U.shuffle(pickQuestions(m.qcm, +arg || 10));
     runQcm(list, { back: 'm/' + m.id + '/qcm-tab', again: 'm/' + m.id + '/qcm/' + (arg || '10') });
   }
@@ -792,6 +854,224 @@
     const b = $('#allc'); if (b) b.addEventListener('click', () => { setTop('Points faibles', 'faibles'); runCards(U.shuffle(cs), 'faibles'); });
   }
 
+
+  // ================= PSEUDO ET ÉQUIPAGE =================
+  function resume(st = S, me = ME) {
+    const mods = {}; let sum = 0, n = 0;
+    for (const m of MODS) { if (!hasContent(m)) continue; const p = mastery(m, st) || 0; mods[m.id] = p; sum += p; n++; }
+    const h28 = [];
+    for (let k = 27; k >= 0; k--) { const d = new Date(); d.setDate(d.getDate() - k); h28.push(st.days[dayStr(d)] || 0); }
+    const ex = st.exams || [];
+    return {
+      pseudo: me ? me.pseudo : '', maj: Date.now(), pct: n ? Math.round(sum / n) : 0,
+      qOk: Object.values(st.qcm).filter((x) => x.last === 1).length, qVus: Object.keys(st.qcm).length,
+      cartes: Object.values(st.cards).filter((x) => (x.b || 0) >= 3).length, serie: streak(st), h28, mods,
+      ex: ex.length ? { n: ex.length, best: Math.max(...ex.map((e) => e.note)), last: ex[ex.length - 1].note } : null
+    };
+  }
+  function updateMe() {
+    const a = $('#me'); if (!a) return;
+    const dot = !Cloud.on() ? '' : `<i class="sdot ${Cloud.state === 'err' ? 'err' : Cloud.state === 'ok' ? 'ok' : ''}" aria-hidden="true"></i>`;
+    a.innerHTML = ME ? `<span class="av">${esc(ME.pseudo.slice(0, 1).toUpperCase())}</span><span class="me-n">${esc(ME.pseudo)}</span>${dot}` : `<span class="me-n">Pseudo</span>`;
+    a.setAttribute('aria-label', ME ? 'Mon pseudo : ' + ME.pseudo : 'Choisir un pseudo');
+  }
+  function switchTo(me) {
+    clearTimeout(saveTimer); ls.set(storeKey(), JSON.stringify(S));
+    if (Cloud.on() && Cloud.dirty) Cloud.push();
+    clearTimeout(Cloud.timer); Cloud.timer = null; Cloud.dirty = false; Cloud.state = 'off';
+    ME = me;
+    if (me) ls.set('c200.session', JSON.stringify(me)); else ls.del('c200.session');
+    S = loadLocal(); applyTheme(); updateMe();
+  }
+  function ago(t) {
+    if (!t) return 'jamais';
+    const mn = Math.round((Date.now() - t) / 60000);
+    if (mn < 2) return "à l'instant";
+    if (mn < 60) return 'il y a ' + mn + ' min';
+    const h = Math.round(mn / 60); if (h < 24) return 'il y a ' + h + ' h';
+    const j = Math.round(h / 24); return j === 1 ? 'hier' : 'il y a ' + j + ' jours';
+  }
+  // liste des joueurs : base partagée si possible, sinon ceux de cet appareil
+  async function listPlayers() {
+    let shared = null;
+    if (P.enabled()) {
+      try { shared = (await P.api('joueurs')) || {}; for (const k in shared) cacheAccount(k, { pseudo: shared[k].pseudo, h: shared[k].h }); }
+      catch (e) { shared = null; }
+    }
+    if (shared) return { shared: true, list: Object.entries(shared).map(([key, v]) => ({ key, pseudo: v.pseudo || key, r: v.resume || null })) };
+    const acc = localAccounts();
+    return { shared: false, offline: P.enabled(), list: Object.entries(acc).map(([key, v]) => {
+      let st = null; try { const t = ls.get('c200.p.' + key); st = t ? normalize(JSON.parse(t)) : null; } catch (e) { st = null; }
+      return { key, pseudo: v.pseudo || key, r: st ? resume(st, { pseudo: v.pseudo || key }) : null, local: true };
+    }) };
+  }
+  async function login(key, pass) {
+    const h = P.hash(key, pass);
+    let acc = null;
+    if (P.enabled()) { try { acc = await P.api('joueurs/' + key); } catch (e) { acc = null; } }
+    if (!acc) acc = localAccounts()[key];
+    if (!acc) return 'Pseudo inconnu.';
+    if (acc.h !== h) return 'Mot de passe incorrect.';
+    cacheAccount(key, { pseudo: acc.pseudo, h: acc.h });
+    switchTo({ key, pseudo: acc.pseudo || key });
+    if (Cloud.on()) await Cloud.sync();
+    return null;
+  }
+  async function createAccount(pseudo, pass, keep) {
+    pseudo = String(pseudo || '').trim().replace(/\s+/g, ' ').slice(0, 20);
+    const key = P.keyOf(pseudo);
+    if (key.length < 2) return 'Choisis un pseudo d\'au moins 2 lettres ou chiffres.';
+    if (String(pass).length < 4) return 'Le mot de passe doit faire au moins 4 caractères.';
+    const acc = { pseudo, h: P.hash(key, pass), cree: Date.now() };
+    if (P.enabled()) {
+      let exist;
+      try { exist = await P.api('joueurs/' + key); } catch (e) { return 'Pas de connexion : impossible de réserver le pseudo pour l\'instant.'; }
+      if (exist) return 'Ce pseudo est déjà pris.';
+      try { await P.api('joueurs/' + key, 'PUT', acc); } catch (e) { return 'La base n\'a pas répondu. Réessaie dans un moment.'; }
+    } else if (localAccounts()[key]) return 'Ce pseudo existe déjà sur cet appareil.';
+    cacheAccount(key, { pseudo, h: acc.h });
+    const old = keep ? loadLocal(null) : null;
+    switchTo({ key, pseudo });
+    if (old) { S = normalize(P.merge(S, old)); }
+    ls.set(storeKey(), JSON.stringify(S));
+    if (Cloud.on()) await Cloud.push();
+    return null;
+  }
+  const hasLegacy = () => { const t = ls.get(LEGACY); return !!t && t.length > 120; };
+
+  function viewCompte() {
+    setTop('Mon pseudo', '/'); setNav('equipage');
+    const note = P.enabled() ? '' : `<div class="feedback"><p class="small">Le partage n'est pas encore branché : les pseudos et leur progression restent sur cet appareil. Pour que l'équipage voie tout depuis n'importe quel téléphone, il faut régler la base partagée (voir le fichier README).</p></div>`;
+    if (ME) {
+      app.innerHTML = `<article class="fiche">
+        <p class="eyebrow">Connecté</p><h1>${esc(ME.pseudo)}</h1>
+        ${note}
+        ${P.enabled() ? `<p class="muted">Progression envoyée ${ago(Cloud.last)}${Cloud.state === 'err' ? ' · <b class="warn">dernier envoi raté (pas de réseau ?)</b>' : ''}.</p>` : ''}
+        <div class="actions">
+          ${P.enabled() ? '<button class="btn" id="sync">Synchroniser maintenant</button>' : ''}
+          <a class="btn ghost" href="#/equipage">Voir l'équipage</a>
+        </div>
+        <h2 class="lst-h">Changer de pseudo</h2>
+        <p class="muted">Ta progression reste enregistrée sous ton pseudo. Il faudra ton mot de passe pour revenir.</p>
+        <div class="actions"><button class="btn ghost" id="out">Se déconnecter</button></div>
+        <h2 class="lst-h">Supprimer mon pseudo</h2>
+        <div class="actions"><button class="btn danger" id="del">Supprimer ${esc(ME.pseudo)}</button></div>
+        <div id="conf"></div>
+      </article>`;
+      const sy = $('#sync');
+      if (sy) sy.addEventListener('click', async () => { sy.disabled = true; sy.textContent = 'Synchronisation…'; const ok = await Cloud.sync(); toast(ok ? 'Progression à jour' : 'Pas de réseau : réessaie plus tard'); viewCompte(); });
+      $('#out').addEventListener('click', () => { const n = ME.pseudo; switchTo(null); toast('À bientôt ' + n); go('compte'); });
+      $('#del').addEventListener('click', () => {
+        $('#conf').innerHTML = `<div class="feedback ko"><p>Supprimer le pseudo <b>${esc(ME.pseudo)}</b> et toute sa progression ?</p>
+          <label class="fld" for="dp"><span>Mot de passe</span><input id="dp" type="password" autocomplete="current-password"></label>
+          <div class="actions"><button class="btn danger" id="y">Supprimer</button><button class="btn ghost" id="n">Annuler</button></div></div>`;
+        $('#n').addEventListener('click', () => ($('#conf').innerHTML = ''));
+        $('#y').addEventListener('click', async () => {
+          const acc = localAccounts()[ME.key];
+          if (!acc || acc.h !== P.hash(ME.key, $('#dp').value)) { toast('Mot de passe incorrect'); return; }
+          const key = ME.key;
+          if (P.enabled()) {
+            try { await P.api('progres/' + key, 'DELETE'); await P.api('joueurs/' + key, 'DELETE'); }
+            catch (e) { toast('Pas de réseau : suppression impossible'); return; }
+          }
+          switchTo(null);
+          ls.del('c200.p.' + key);
+          const a = localAccounts(); delete a[key]; ls.set('c200.comptes', JSON.stringify(a));
+          toast('Pseudo supprimé'); go('compte');
+        });
+      });
+      return;
+    }
+    app.innerHTML = `<article class="fiche">
+      <p class="eyebrow">Équipage</p><h1>Choisis ton pseudo</h1>
+      <p class="muted">Chacun a son pseudo et son mot de passe. Ta progression est gardée sous ton pseudo, et tout l'équipage peut la voir.</p>
+      ${note}
+      <h2 class="lst-h">J'ai déjà un pseudo</h2>
+      <div id="who"><p class="muted">Chargement…</p></div>
+      <div id="log"></div>
+      <h2 class="lst-h">Créer un pseudo</h2>
+      <form id="new" class="settings" autocomplete="off">
+        <label class="fld" for="np"><span>Pseudo</span><input id="np" maxlength="20" autocomplete="username" required></label>
+        <label class="fld" for="nw"><span>Mot de passe (4 caractères au moins)</span><input id="nw" type="password" autocomplete="new-password" required></label>
+        ${hasLegacy() ? `<label class="chk-l"><input type="checkbox" id="keep" checked> Garder la progression déjà faite sur cet appareil</label>` : ''}
+        <div class="actions"><button class="btn" type="submit">Créer</button></div>
+        <p class="ko-t" id="nerr" role="alert"></p>
+      </form>
+      <p class="muted small">Ce n'est pas une sécurité de banque : choisis un mot de passe que tu n'utilises nulle part ailleurs.</p>
+    </article>`;
+    $('#new').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const b = e.submitter || $('#new button'); b.disabled = true;
+      const err = await createAccount($('#np').value, $('#nw').value, $('#keep') ? $('#keep').checked : false);
+      b.disabled = false;
+      if (err) { $('#nerr').textContent = err; return; }
+      toast('Bienvenue à bord, ' + ME.pseudo); go('');
+    });
+    listPlayers().then(({ list, offline }) => {
+      const box = $('#who'); if (!box) return;
+      if (!list.length) { box.innerHTML = `<p class="muted">${offline ? 'Pas de réseau : impossible de charger les pseudos.' : 'Aucun pseudo pour l\'instant. Crée le premier.'}</p>`; return; }
+      box.innerHTML = `<div class="chips">${list.sort((a, b) => a.pseudo.localeCompare(b.pseudo)).map((x) => `<button class="chip-b" data-k="${esc(x.key)}">${esc(x.pseudo)}</button>`).join('')}</div>`;
+      $$('.chip-b', box).forEach((b) => b.addEventListener('click', () => {
+        $$('.chip-b', box).forEach((o) => o.classList.toggle('on', o === b));
+        $('#log').innerHTML = `<form id="lf" class="settings">
+          <label class="fld" for="lp"><span>Mot de passe de ${esc(b.textContent)}</span><input id="lp" type="password" autocomplete="current-password" required></label>
+          <div class="actions"><button class="btn" type="submit">Monter à bord</button></div>
+          <p class="ko-t" id="lerr" role="alert"></p></form>`;
+        $('#lp').focus();
+        $('#lf').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const err = await login(b.dataset.k, $('#lp').value);
+          if (err) { $('#lerr').textContent = err; return; }
+          toast('Bon quart, ' + ME.pseudo); go('');
+        });
+      }));
+    });
+  }
+
+  function viewEquipage() {
+    setTop('Équipage', '/'); setNav('equipage');
+    app.innerHTML = `<article class="fiche"><p class="eyebrow">Qui en est où</p><h1>Équipage</h1><div id="eq"><p class="muted">Chargement…</p></div></article>`;
+    if (ME && Cloud.on() && Cloud.dirty) Cloud.push();
+    listPlayers().then(({ list, shared, offline }) => {
+      const box = $('#eq'); if (!box) return;
+      if (ME && !list.some((x) => x.key === ME.key)) list.push({ key: ME.key, pseudo: ME.pseudo, r: resume() });
+      if (ME) { const mine = list.find((x) => x.key === ME.key); if (mine) mine.r = resume(); }
+      const rows = list.filter((x) => x.r).sort((a, b) => (b.r.pct - a.r.pct) || (b.r.qOk - a.r.qOk));
+      const head = shared ? '' : `<p class="muted small">${offline ? 'Pas de réseau : seuls les pseudos de cet appareil sont affichés.' : 'Partage pas encore branché : seuls les pseudos de cet appareil sont affichés.'}</p>`;
+      if (!rows.length) { box.innerHTML = head + `<p class="muted">Personne n'a encore de progression. <a href="#/compte">Crée ton pseudo</a>.</p>`; return; }
+      box.innerHTML = head + `<ol class="crew">${rows.map((x, i) => `<li><a href="#/equipage/${encodeURIComponent(x.key)}" class="${ME && x.key === ME.key ? 'me-row' : ''}">
+          <span class="rk">${i + 1}</span>
+          <span class="cw-main"><b>${esc(x.pseudo)}</b><span class="muted small">${x.r.qOk} QCM réussis · ${x.r.cartes} cartes sues · ${actif(x.r)}</span>${bar(x.r.pct)}</span>
+          <span class="pct">${x.r.pct}%</span></a></li>`).join('')}</ol>
+        ${ME ? '' : '<p><a class="btn" href="#/compte">Choisir mon pseudo</a></p>'}`;
+    });
+  }
+  function actif(r) {
+    const k = (r.h28 || []).map((v, i) => (v ? i : -1)).filter((i) => i >= 0).pop();
+    if (k === undefined) return 'pas d\'activité récente';
+    const d = (27 - k) + Math.max(0, Math.floor((Date.now() - (r.maj || Date.now())) / 864e5));
+    return d === 0 ? 'actif aujourd\'hui' : d === 1 ? 'actif hier' : 'actif il y a ' + d + ' jours';
+  }
+  function viewJoueur(key) {
+    setTop('Équipage', 'equipage'); setNav('equipage');
+    app.innerHTML = `<article class="fiche"><div id="pj"><p class="muted">Chargement…</p></div></article>`;
+    listPlayers().then(({ list }) => {
+      const box = $('#pj'); if (!box) return;
+      let x = list.find((p) => p.key === key);
+      if (ME && key === ME.key) x = { key, pseudo: ME.pseudo, r: resume() };
+      if (!x || !x.r) { box.innerHTML = '<p class="muted">Pas encore de progression pour ce pseudo.</p>'; return; }
+      const r = x.r, max = Math.max(1, ...(r.h28 || [0]));
+      box.innerHTML = `<p class="eyebrow">Équipage</p><h1>${esc(x.pseudo)}</h1>
+        <div class="stats3"><div><b>${r.pct}%</b><span>maîtrise moyenne</span></div><div><b>${r.qOk}</b><span>QCM réussis sur ${r.qVus} vus</span></div><div><b>${r.serie}</b><span>jours de suite</span></div></div>
+        <div class="stats3"><div><b>${r.cartes}</b><span>cartes sues</span></div><div><b>${r.ex ? U.fr(r.ex.best) : '–'}</b><span>meilleur examen /20</span></div><div><b>${r.ex ? r.ex.n : 0}</b><span>examens blancs</span></div></div>
+        <h2 class="lst-h">4 dernières semaines</h2>
+        <div class="heat" role="img" aria-label="Activité des 28 derniers jours">${(r.h28 || []).map((n) => `<span style="--v:${n ? 0.25 + 0.75 * n / max : 0}"></span>`).join('')}</div>
+        ${C.blocs.map((b) => { const ms = MODS.filter((m) => m.bloc === b.id && hasContent(m)); if (!ms.length) return '';
+          return `<h2 class="lst-h">${esc(b.titre)}</h2><ul class="per">${ms.map((m) => { const p = (r.mods || {})[m.id] || 0; return `<li><span>${esc(m.titre)}</span>${bar(p)}<b class="mono">${p}%</b></li>`; }).join('')}</ul>`; }).join('')}
+        <p class="muted small">Mis à jour ${ago(r.maj)}.</p>`;
+    });
+  }
+
   // ================= PROGRÈS / RÉGLAGES =================
   function viewStats() {
     setTop('Progrès', '/'); setNav('stats');
@@ -807,6 +1087,7 @@
       <h2 class="lst-h">Par matière</h2>
       <ul class="per">${MODS.filter(hasContent).map((m) => { const p = mastery(m) || 0; return `<li><a href="#/m/${m.id}">${esc(m.titre)}</a>${bar(p)}<b class="mono">${p}%</b></li>`; }).join('')}</ul>
 
+      <p class="muted small">Version du site : ${esc(C.config.version || '')} · ${allQ.length} QCM, ${allC.length} cartes</p>
       <h2 class="lst-h">Réglages</h2>
       <div class="settings">
         <label class="fld" for="nouv"><span>Nouvelles cartes par session</span>
@@ -816,7 +1097,7 @@
       </div>
 
       <h2 class="lst-h">Sauvegarde</h2>
-      <p class="muted">Ta progression reste dans ce navigateur. Pour la passer du téléphone au PC : copie le code ici, puis colle-le sur l'autre appareil.</p>
+      <p class="muted">${ME ? (P.enabled() ? `Connecté en <b>${esc(ME.pseudo)}</b> : ta progression est copiée dans la base de l'équipage et suit ton pseudo sur tous tes appareils.` : `Connecté en <b>${esc(ME.pseudo)}</b> : ta progression reste sur cet appareil tant que le partage n'est pas branché.`) : 'Sans pseudo, ta progression reste dans ce navigateur. <a href="#/compte">Choisis un pseudo</a> pour la garder sous ton nom.'} Tu peux aussi la copier ici et la coller sur un autre appareil.</p>
       <div class="actions"><button class="btn ghost" id="exp">Copier ma progression</button><button class="btn ghost" id="dl">Télécharger un fichier</button></div>
       <label class="fld" for="imp"><span>Coller une progression</span><textarea id="imp" rows="3" placeholder="Colle ici le code copié sur l'autre appareil"></textarea></label>
       <div class="actions"><button class="btn ghost" id="doimp">Importer</button><label class="btn ghost file">Importer un fichier<input type="file" id="fimp" accept=".json,application/json" hidden></label></div>
@@ -857,8 +1138,14 @@
   }
 
   // ================= Démarrage =================
-  window.addEventListener('pagehide', () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} });
+  window.addEventListener('pagehide', () => { ls.set(storeKey(), JSON.stringify(S)); Cloud.flush(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { ls.set(storeKey(), JSON.stringify(S)); Cloud.flush(); }
+    else if (Cloud.on() && Date.now() - Cloud.pulled > 120000) Cloud.pull();
+  });
+  updateMe();
   route();
+  if (Cloud.on()) Cloud.sync().then(() => { if (/^#\/?$/.test(location.hash || '#/')) route(); });
   if ('serviceWorker' in navigator && location.protocol === 'https:' && window.self === window.top) {
     try { navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) {}
   }
