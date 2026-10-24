@@ -5,7 +5,13 @@
   C.modules = [];
   C.gens = {};
   C.visuels = {};
+  C.lex = [];
+  C.ex = {};
   C.config = { formation: '2026-11-16', prenom: 'Mehdi', version: '24 oct. 2026' };
+  // Lexique du débutant : [terme, définition, [formes reconnues], courant ?]
+  C.lexique = function (list) { C.lex = C.lex.concat(list); };
+  // Explications des QCM, rangées à part : { identifiant de la question : explication }
+  C.expl = function (obj) { Object.assign(C.ex, obj); };
   C.blocs = [
     { id: 'P1-1', titre: 'Navigation', sous: 'Module P1-1' },
     { id: 'P2-1', titre: 'Navire et sécurité', sous: 'Module P2-1' },

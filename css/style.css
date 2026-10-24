@@ -392,3 +392,32 @@ ol.review { list-style: decimal; padding-left: 1.4em; }
 .crew .pct { font-size: 1.05rem; color: var(--accent); }
 .crew a.me-row { background: var(--sea); border-radius: var(--r); padding-inline: 8px; }
 .stats3 + .stats3 { margin-top: 10px; }
+
+/* ---- Lexique du débutant ---- */
+.lx { text-decoration: underline dotted var(--accent); text-decoration-thickness: 1.5px; text-underline-offset: 3px; cursor: help; border-radius: 3px; }
+.lx:hover, .lx:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.lxpop { position: fixed; left: 0; right: 0; bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px)); z-index: 40; padding: 0 12px 10px; display: flex; justify-content: center; pointer-events: none; }
+.lxpop-in { pointer-events: auto; width: 100%; max-width: 640px; background: var(--surface); color: var(--ink); border: 1.5px solid var(--accent); border-radius: 14px; padding: 14px 16px 12px; box-shadow: 0 8px 30px rgba(0, 0, 0, .25); animation: lxup .15s ease-out; }
+@keyframes lxup { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+.lxpop-t { margin: 0 0 4px; font-family: var(--f-display); font-size: 1.35rem; font-weight: 700; color: var(--accent); }
+.lxpop-d { margin: 0; }
+.lxpop-a { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: .92rem; }
+.lxpop-a .btn { padding: 6px 14px; }
+.lx-box { border-top: 1px dashed currentColor; padding-top: 8px; margin-top: 2px; }
+.feedback .lx-box { border-color: color-mix(in srgb, var(--ink) 25%, transparent); }
+.lx-h { margin: 0 0 4px; font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.lx-box dl { margin: 0; display: grid; gap: 6px; }
+.lx-box dt { display: inline; font-weight: 700; }
+.lx-box dt::after { content: " : "; font-weight: 400; }
+.lx-box dd { display: inline; margin: 0; }
+.runner #cw .lx-box { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.good-a b { color: var(--ok); }
+.expl { font-size: 1rem; }
+.lexlink { display: grid; gap: 2px; margin: 12px 0 0; padding: 12px 14px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; }
+.lexlink b { color: var(--sea-ink); font-family: var(--f-display); font-size: 1.15rem; letter-spacing: .02em; }
+.lexlink span { font-size: .9rem; color: var(--muted); }
+.lexlist { margin: 0; display: grid; gap: 0; }
+.lxi { padding: 10px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 80px; }
+.lxi dt { font-weight: 700; color: var(--sea-ink); }
+.lxi dd { margin: 2px 0 0; }
+.lxi.hl { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 6px; padding-inline: 8px; }

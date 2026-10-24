@@ -1,7 +1,7 @@
 /* Capitaine 200 — service worker (généré par tools/build_sw.py).
    En ligne : on prend toujours la dernière version publiée (réseau d'abord).
    Hors ligne : on sert la copie gardée en cache. */
-const VERSION = 'c200-6984afa641';
+const VERSION = 'c200-a2f25625f2';
 const ASSETS = [
   './',
   'index.html',
@@ -26,6 +26,7 @@ const ASSETS = [
   'data/circuits.js',
   'data/construction.js',
   'data/electricite.js',
+  'data/lexique.js',
   'data/manoeuvre.js',
   'data/marees.js',
   'data/meteo.js',

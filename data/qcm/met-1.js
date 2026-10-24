@@ -242,8 +242,8 @@ C200.plus('meteo', 'pression', [
   ["Une dépression « thermique » se forme…", "Sur une terre très chaude en été (péninsule Ibérique)", ["Sur la banquise", "Sur une mer froide", "Dans le mistral"]],
   ["La tendance barométrique se donne sur…", "3 heures", ["10 minutes", "1 semaine", "1 an"]],
   ["On tapote doucement le verre du baromètre pour…", "Débloquer l'aiguille et voir la tendance", ["Le régler", "Le recharger", "Le nettoyer"]],
-  ["Sur une carte, des isobares en V ouverts vers les hautes pressions forment…", "Un thalweg (pointe vers les hautes pressions)", ["Une dorsale", "Un col", "Un marais"]],
-  ["Une dorsale se reconnaît à des isobares…", "En U, ouverts vers les basses pressions", ["En V très serrés", "En cercle fermé", "Rectilignes"]],
+  ["Sur une carte, des isobares en V, pointe tournée vers les hautes pressions, forment…", "Un thalweg (creux de basse pression)", ["Une dorsale", "Un col", "Un marais"]],
+  ["Une dorsale se reconnaît à des isobares…", "En U, pointe tournée vers les basses pressions", ["En V très serrés", "En cercle fermé", "Rectilignes"]],
   ["Isobares fermées et concentriques avec la pression la plus basse au centre :", "Une dépression", ["Un anticyclone", "Un col", "Une dorsale"]],
   ["Le baromètre est stable à 1025 hPa depuis deux jours :", "Temps stable, peu de changement attendu", ["Tempête imminente", "Ouragan", "Grains violents"]]
 ]);

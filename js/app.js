@@ -14,6 +14,7 @@
   const qById = new Map(allQ.map((q) => [q.uid, q]));
   const allC = MODS.flatMap((m) => m.cartes);
   const cById = new Map(allC.map((c) => [c.uid, c]));
+  for (const q of allQ) if (!q.e && C.ex[q.uid]) q.e = C.ex[q.uid];
 
   // ================= Sauvegarde =================
   // Sans pseudo : la progression reste dans 'c200.v1' (comme avant).
@@ -25,7 +26,7 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* stockage indisponible */ } },
     del(k) { try { localStorage.removeItem(k); } catch (e) { /* idem */ } }
   };
-  const blank = () => ({ cards: {}, qcm: {}, fiches: {}, calc: {}, rm: {}, days: {}, exams: [], settings: { nouvelles: 15, theme: 'auto' } });
+  const blank = () => ({ cards: {}, qcm: {}, fiches: {}, calc: {}, rm: {}, days: {}, exams: [], settings: { nouvelles: 15, theme: 'auto', lex: true } });
   function normalize(o) { const s = Object.assign(blank(), o || {}); s.settings = Object.assign(blank().settings, (o && o.settings) || {}); return s; }
   let ME = null;
   try { const se = JSON.parse(ls.get('c200.session') || 'null'); if (se && se.key) ME = se; } catch (e) { /* pas de session */ }
@@ -170,6 +171,7 @@
   });
   function route() {
     if (cur.dispose) try { cur.dispose(); } catch (e) {}
+    lexHide();
     cur = { dispose: null, key: null };
     const h = curHash.replace(/^#\/?/, '');
     const p = h.split('/').filter(Boolean).map(decodeURIComponent);
@@ -187,6 +189,7 @@
         if (p[2] === 'atelier' && p[3] && m.atelier) return viewAtelier(m, p[3]);
         return viewModule(m, p[2] || '');
       }
+      if (p[0] === 'lexique') return viewLexique(p[1]);
       if (p[0] === 'revision') return viewRevision();
       if (p[0] === 'examen') return viewExamSetup(p[1]);
       if (p[0] === 'faibles') return viewFaibles();
@@ -220,6 +223,148 @@
   }
   function dueCount(list) { return list.filter(cardIsDue).length; }
 
+
+  // ================= LEXIQUE =================
+  // Les mots difficiles sont soulignés en pointillé ; on tape dessus pour lire leur définition.
+  const LEX = (C.lex || []).map(([t, d, forms, common]) => ({ t, d, forms: forms && forms.length ? forms : [t], common: !!common }));
+  LEX.forEach((e) => { e.id = norm(e.t).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); });
+  const lexById = new Map(LEX.map((e) => [e.id, e]));
+  let LX = null;
+  function lexInit() {
+    if (LX) return LX;
+    const cs = [], ci = [], map = new Map();
+    const key = (f, s) => (s ? 'S' + f : 'I' + f.toLowerCase().replace(/’/g, "'"));
+    for (const e of LEX) for (const f of e.forms) {
+      const s = f !== f.toLowerCase() && (f.length <= 4 || f === f.toUpperCase());
+      (s ? cs : ci).push(f); map.set(key(f, s), e);
+    }
+    const rx = (arr, fl) => {
+      if (!arr.length) return null;
+      const alt = arr.sort((a, b) => b.length - a.length).map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/'/g, "['’]")).join('|');
+      try { return new RegExp('(^|[^\\p{L}\\p{N}-])(' + alt + ')(?![\\p{L}\\p{N}-])', 'gu' + fl); } catch (err) { return null; }
+    };
+    LX = { cs: rx(cs, ''), ci: rx(ci, 'i'), map, key };
+    return LX;
+  }
+  // Mots du lexique trouvés dans un texte brut : [{ i: position, n: longueur, e: entrée }]
+  function lexFind(text) {
+    const L = lexInit(), all = [];
+    for (const [re, s] of [[L.cs, true], [L.ci, false]]) {
+      if (!re) continue;
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(text))) {
+        const e = L.map.get(L.key(m[2], s));
+        if (e) all.push({ i: m.index + m[1].length, n: m[2].length, e });
+      }
+    }
+    all.sort((a, b) => a.i - b.i || b.n - a.n);
+    const res = []; let end = -1;
+    for (const x of all) if (x.i >= end) { res.push(x); end = x.i + x.n; }
+    return res;
+  }
+  // Souligne dans un bloc la première apparition de chaque mot difficile
+  const LEX_SKIP = 'a, button, .lx, svg, script, style, code, kbd, textarea, input, select, .nolex, .lx-box';
+  function lexMark(root, seen = new Set()) {
+    if (!root || S.settings.lex === false || !LEX.length) return seen;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (!n.nodeValue.trim() || (n.parentElement && n.parentElement.closest(LEX_SKIP)) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
+    });
+    const nodes = []; let n;
+    while ((n = walker.nextNode())) nodes.push(n);
+    for (const node of nodes) {
+      const t = node.nodeValue;
+      const hits = lexFind(t).filter((x) => !x.e.common);
+      if (!hits.some((x) => !seen.has(x.e.id))) continue;
+      const frag = document.createDocumentFragment(); let pos = 0;
+      for (const x of hits) {
+        if (seen.has(x.e.id)) continue;
+        seen.add(x.e.id);
+        frag.append(t.slice(pos, x.i));
+        const sp = document.createElement('span');
+        sp.className = 'lx'; sp.dataset.lx = x.e.id; sp.tabIndex = 0; sp.setAttribute('role', 'button');
+        sp.textContent = t.slice(x.i, x.i + x.n);
+        frag.append(sp); pos = x.i + x.n;
+      }
+      frag.append(t.slice(pos));
+      node.replaceWith(frag);
+    }
+    return seen;
+  }
+  // Liste des mots difficiles d'une question (question d'abord, puis réponses, puis explication)
+  function lexTerms(texts, max = 6) {
+    const seen = new Set(), out = [];
+    for (const t of texts) for (const x of lexFind(strip(t || ''))) {
+      if (x.e.common || seen.has(x.e.id)) continue;
+      seen.add(x.e.id); out.push(x.e);
+    }
+    return out.slice(0, max);
+  }
+  function lexBox(list, title = 'Les mots à comprendre') {
+    if (!list.length) return '';
+    return `<div class="lx-box"><p class="lx-h">${title}</p><dl>${list.map((e) => `<div><dt>${esc(e.t)}</dt><dd>${esc(e.d)}</dd></div>`).join('')}</dl></div>`;
+  }
+  const lxpop = document.createElement('div');
+  lxpop.className = 'lxpop'; lxpop.hidden = true; lxpop.setAttribute('role', 'dialog'); lxpop.setAttribute('aria-live', 'polite');
+  document.body.appendChild(lxpop);
+  function lexShow(id) {
+    const e = lexById.get(id);
+    if (!e) return;
+    lxpop.innerHTML = `<div class="lxpop-in"><p class="lxpop-t">${esc(e.t)}</p><p class="lxpop-d">${esc(e.d)}</p>
+      <div class="lxpop-a"><a href="#/lexique/${e.id}">Tout le lexique</a><button class="btn ghost" type="button" data-close="1">Fermer</button></div></div>`;
+    lxpop.hidden = false;
+  }
+  function lexHide() { lxpop.hidden = true; }
+  document.addEventListener('click', (ev) => {
+    const t = ev.target.closest ? ev.target.closest('.lx') : null;
+    if (t) { ev.preventDefault(); ev.stopPropagation(); lexShow(t.dataset.lx); return; }
+    if (lxpop.hidden) return;
+    if (ev.target.closest('[data-close]')) { ev.preventDefault(); ev.stopPropagation(); lexHide(); return; }
+    if (!ev.target.closest('.lxpop')) { ev.preventDefault(); ev.stopPropagation(); lexHide(); }
+  }, true);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && !lxpop.hidden) { lexHide(); ev.stopPropagation(); return; }
+    const t = ev.target.closest ? ev.target.closest('.lx') : null;
+    if (t && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); ev.stopPropagation(); lexShow(t.dataset.lx); }
+  }, true);
+  function viewLexique(id) {
+    setTop('Lexique', '/'); setNav('home');
+    const list = LEX.slice().sort((a, b) => norm(a.t).localeCompare(norm(b.t)));
+    app.innerHTML = `<article class="fiche">
+      <p class="eyebrow">Les mots de la mer</p><h1>Lexique</h1>
+      <p class="muted">${LEX.length} mots expliqués simplement. Dans les fiches et les questions, les mots soulignés en pointillé s'expliquent quand tu tapes dessus.</p>
+      <div class="search"><label for="lxq" class="sr">Chercher un mot</label><input id="lxq" type="search" placeholder="Chercher un mot : espar, gîte, MMSI…" autocomplete="off"></div>
+      <p class="muted small" id="lxn"></p>
+      <div id="lxl"></div>
+    </article>`;
+    const item = (e) => `<div class="lxi" id="lx-${e.id}"><dt>${esc(e.t)}</dt><dd>${esc(e.d)}</dd></div>`;
+    function draw(q) {
+      const w = norm(q.trim());
+      let html;
+      if (!w) {
+        const groups = {};
+        list.forEach((e) => { const l = norm(e.t).charAt(0).toUpperCase(); (groups[l] = groups[l] || []).push(e); });
+        html = Object.keys(groups).sort().map((l) => `<h2 class="lst-h">${l}</h2><dl class="lexlist">${groups[l].map(item).join('')}</dl>`).join('');
+        $('#lxn').textContent = '';
+      } else {
+        const inName = list.filter((e) => norm(e.t + ' ' + e.forms.join(' ')).includes(w));
+        inName.sort((a, b) => (norm(b.t).startsWith(w) ? 1 : 0) - (norm(a.t).startsWith(w) ? 1 : 0));
+        const inDef = list.filter((e) => !inName.includes(e) && norm(e.d).includes(w));
+        html = (inName.length ? `<dl class="lexlist">${inName.map(item).join('')}</dl>` : '')
+          + (inDef.length ? `<h2 class="lst-h">Dans les définitions</h2><dl class="lexlist">${inDef.slice(0, 40).map(item).join('')}</dl>` : '');
+        $('#lxn').textContent = inName.length + inDef.length ? plural(inName.length + inDef.length, 'mot trouvé', 'mots trouvés') : 'Rien trouvé. Essaie un autre mot, ou une partie du mot.';
+      }
+      $('#lxl').innerHTML = html;
+    }
+    const input = $('#lxq');
+    input.addEventListener('input', () => draw(input.value));
+    draw('');
+    if (id && lexById.has(id)) {
+      const el = document.getElementById('lx-' + id);
+      if (el) { el.classList.add('hl'); setTimeout(() => el.scrollIntoView({ block: 'center' }), 30); }
+    }
+  }
+
   // ================= ACCUEIL =================
   function viewHome() {
     setTop('', null); setNav('home');
@@ -242,7 +387,8 @@
         <label for="search" class="sr">Chercher une notion</label>
         <input id="search" type="search" placeholder="Chercher une notion : feu de poupe, marnage, GM…" autocomplete="off">
       </div>
-      <div id="results"></div>`;
+      <div id="results"></div>
+      ${LEX.length ? `<a class="lexlink" href="#/lexique"><b>Lexique</b><span>${LEX.length} mots de la mer expliqués simplement</span></a>` : ''}`;
     for (const b of C.blocs) {
       const mods = MODS.filter((m) => m.bloc === b.id);
       if (!mods.length) continue;
@@ -275,6 +421,7 @@
     if (q.length < 2) { box.innerHTML = ''; return; }
     if (!searchIndex) {
       searchIndex = [];
+      LEX.forEach((e) => searchIndex.push({ t: 'Mot', m: null, title: e.t, ans: esc(e.d), text: norm(e.t + ' ' + e.forms.join(' ')) }));
       for (const m of MODS) {
         m.fiches.forEach((f) => searchIndex.push({ t: 'Fiche', m, title: f.titre, text: norm(f.titre + ' ' + strip(f.html)), href: `#/m/${m.id}/fiche/${f.id}` }));
         m.cartes.forEach((c) => searchIndex.push({ t: 'Carte', m, title: strip(c.r), ans: c.v, text: norm(strip(c.r + ' ' + c.v)) }));
@@ -282,12 +429,13 @@
       }
     }
     const words = q.split(/\s+/);
+    const rank = (it) => (it.t === 'Mot' ? (norm(it.title).startsWith(q) ? 0 : 3) : it.t === 'Fiche' ? 1 : 2);
     const res = searchIndex.filter((it) => words.every((w) => it.text.includes(w)))
-      .sort((a, b) => (a.t === 'Fiche' ? -1 : 0) - (b.t === 'Fiche' ? -1 : 0)).slice(0, 25);
+      .sort((a, b) => rank(a) - rank(b)).slice(0, 25);
     if (!res.length) { box.innerHTML = '<p class="muted pad">Rien trouvé. Essaie un autre mot.</p>'; return; }
     box.innerHTML = '<ul class="results">' + res.map((r) => r.href
       ? `<li><a href="${r.href}"><span class="tag">${r.t}</span> <b>${esc(r.title)}</b> <span class="muted">· ${esc(r.m.court)}</span></a></li>`
-      : `<li><details><summary><span class="tag">${r.t}</span> ${esc(r.title)} <span class="muted">· ${esc(r.m.court)}</span></summary><div class="ans">${r.ans}</div></details></li>`).join('') + '</ul>';
+      : `<li><details><summary><span class="tag">${r.t}</span> ${esc(r.title)}${r.m ? ` <span class="muted">· ${esc(r.m.court)}</span>` : ''}</summary><div class="ans">${r.ans}</div></details></li>`).join('') + '</ul>';
   }
 
   // ================= MATIÈRE =================
@@ -392,6 +540,7 @@
       if (t.parentElement.classList.contains('tw')) return;
       const w = document.createElement('div'); w.className = 'tw'; t.replaceWith(w); w.appendChild(t);
     });
+    lexMark($('.fiche-body'));
   }
 
   // ================= CARTES =================
@@ -446,6 +595,7 @@
           <button class="btn ko" id="g-ko">À revoir <kbd>1</kbd></button>
           <button class="btn ok" id="g-ok">Je savais <kbd>2</kbd></button>
         </div>
+        <div id="cw"></div>
         <p class="muted center small" id="kb">Espace : retourner</p>
       </div>`;
       $('#flash').addEventListener('click', flip);
@@ -456,6 +606,8 @@
       flipped = !flipped;
       $('#flash').classList.toggle('flipped', flipped);
       if (flipped) $('#grade').hidden = false;
+      const c = queue[i];
+      $('#cw').innerHTML = flipped && S.settings.lex !== false ? lexBox(lexTerms([c.r, c.v]), 'Les mots de cette carte') : '';
     }
     function grade(ok) {
       const c = queue[i];
@@ -489,6 +641,7 @@
     const art = $('.fiche');
     $('#hide').addEventListener('click', (e) => { const on = art.classList.toggle('masque'); e.target.textContent = on ? 'Montrer les réponses' : 'Cacher les réponses'; $$('.mi').forEach((x) => x.classList.remove('vu')); });
     $$('.mi').forEach((x) => x.addEventListener('click', () => x.classList.toggle('vu')));
+    lexMark(art);
   }
 
   // ================= QCM =================
@@ -544,6 +697,7 @@
         <div id="fb" hidden></div>
       </div>`;
       $$('.ans').forEach((b) => b.addEventListener('click', () => answer(+b.dataset.k)));
+      lexMark($('.question .qt'));
     }
     function answer(k) {
       if (answered) return;
@@ -560,7 +714,11 @@
       const fb = $('#fb');
       fb.hidden = false;
       fb.className = 'feedback ' + (good ? 'ok' : 'ko');
-      fb.innerHTML = `<p class="verdict">${good ? 'Juste' : 'Raté'}</p>${q.e ? `<p>${q.e}</p>` : ''}
+      const words = S.settings.lex === false ? [] : lexTerms([q.q, ...it.order.filter((o) => o.k === 0).map((o) => o.t), ...it.order.filter((o) => o.k !== 0).map((o) => o.t), q.e]);
+      fb.innerHTML = `<p class="verdict">${good ? 'Juste' : 'Raté'}</p>
+        ${good ? '' : `<p class="good-a">Bonne réponse : <b>${it.order[it.correct].t}</b></p>`}
+        ${q.e ? `<p class="expl">${q.e}</p>` : ''}
+        ${lexBox(words)}
         ${fiche ? `<p class="small"><a href="#/m/${q.mod.id}/fiche/${fiche.id}">Revoir la fiche : ${esc(fiche.titre)}</a></p>` : ''}
         <button class="btn" id="next">${i + 1 < items.length ? 'Suivante' : 'Voir le résultat'} <kbd>Entrée</kbd></button>`;
       $('#next').addEventListener('click', () => { i++; render(); });
@@ -580,6 +738,7 @@
         </div>
         ${wrong.length ? `<h2 class="lst-h">À retenir (${wrong.length})</h2><ul class="review">${wrong.map((it) => `<li><p class="qt">${it.q.q}</p><p class="good">✓ ${it.q.r[0]}</p>${it.q.e ? `<p class="muted">${it.q.e}</p>` : ''}</li>`).join('')}</ul>` : '<p class="center">Aucune erreur. Bravo.</p>'}
       </div>`;
+      lexMark($('.review'));
     }
     cur.key = (e) => {
       if (!answered && /^[1-6a-fA-F]$/.test(e.key)) {
@@ -818,8 +977,9 @@
         <div class="actions center"><a class="btn" href="#/examen${pre ? '/' + pre : ''}" id="again">Nouvel examen</a><a class="btn ghost" href="#/faibles">Points faibles</a></div>
         <h2 class="lst-h">Correction</h2>
         <ol class="review">${items.map((it, k) => { const good = answers[k] === it.correct; return `<li class="${good ? 'g' : 'b'}"><p class="qt">${it.q.q}</p>
-          ${good ? `<p class="good">✓ ${it.q.r[0]}</p>` : `<p class="bad">✗ ${answers[k] >= 0 ? it.order[answers[k]].t : 'sans réponse'}</p><p class="good">✓ ${it.q.r[0]}</p>${it.q.e ? `<p class="muted">${it.q.e}</p>` : ''}`}</li>`; }).join('')}</ol>
+          ${good ? `<p class="good">✓ ${it.q.r[0]}</p>` : `<p class="bad">✗ ${answers[k] >= 0 ? it.order[answers[k]].t : 'sans réponse'}</p><p class="good">✓ ${it.q.r[0]}</p>`}${it.q.e ? `<p class="muted">${it.q.e}</p>` : ''}</li>`; }).join('')}</ol>
       </div>`;
+      lexMark($('.review'));
       window.scrollTo(0, 0);
     }
     if (timed) tick = setInterval(() => { const c = $('#clock'); const l = left(); if (c) { c.textContent = fmt(l); c.classList.toggle('warn', l < 60); } if (!l) finish(); }, 1000);
@@ -850,6 +1010,7 @@
         ${o.c.length ? `<dl class="memo">${o.c.map((c) => `<div class="mi vu"><dt>${c.r}</dt><dd>${c.v}</dd></div>`).join('')}</dl>` : ''}
       </section>`).join('')}
     </article>`;
+    lexMark($('.fiche'));
     const a = $('#allq'); if (a) a.addEventListener('click', () => { setTop('Points faibles', 'faibles'); runQcm(U.shuffle(qs), { back: 'faibles' }); });
     const b = $('#allc'); if (b) b.addEventListener('click', () => { setTop('Points faibles', 'faibles'); runCards(U.shuffle(cs), 'faibles'); });
   }
@@ -1092,6 +1253,7 @@
       <div class="settings">
         <label class="fld" for="nouv"><span>Nouvelles cartes par session</span>
           <select id="nouv">${[5, 10, 15, 20, 30, 50].map((n) => `<option ${n === S.settings.nouvelles ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="chk-l"><input type="checkbox" id="lexon" ${S.settings.lex !== false ? 'checked' : ''}> <span>Souligner les mots difficiles et les expliquer</span></label>
         <fieldset class="pick"><legend>Thème</legend><div class="chips">
           ${[['auto', 'Automatique'], ['light', 'Clair'], ['dark', 'Nuit']].map(([v, l]) => `<label class="chip"><input type="radio" name="th" value="${v}" ${S.settings.theme === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
       </div>
@@ -1106,6 +1268,7 @@
     </article>`;
     $('#nouv').addEventListener('change', (e) => { S.settings.nouvelles = +e.target.value; save(); toast('Enregistré'); });
     $$('input[name="th"]').forEach((r) => r.addEventListener('change', () => { S.settings.theme = r.value; save(); applyTheme(); }));
+    $('#lexon').addEventListener('change', (e) => { S.settings.lex = e.target.checked; save(); toast('Enregistré'); });
     const data = () => JSON.stringify(S);
     $('#exp').addEventListener('click', () => {
       const txt = data();

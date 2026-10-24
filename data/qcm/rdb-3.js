@@ -58,7 +58,7 @@ C200.plus('rdb', 'feuxroute', [
   ['De nuit, tu vois deux feux blancs (le plus bas devant), et un feu vert. C\'est…', 'Un navire à moteur de 50 m ou plus vu par son tribord', ['Un voilier', 'Un navire au mouillage', 'Un remorqueur vu par bâbord']],
   ['Deux feux blancs à des hauteurs différentes et un feu rouge : tu vois…', 'Un navire à moteur (≥ 50 m) par son bâbord', ['Un navire par son tribord', 'Un voilier par bâbord', 'Un navire au mouillage']],
   ['Les deux feux de mât d\'un navire de face sont alignés verticalement. Il vient…', 'Droit sur toi', ['Vers ta gauche', 'Vers ta droite', 'Il s\'éloigne']],
-  ['Les deux feux de mât d\'un navire de face se décalent, le plus haut vers ta droite. Il tourne…', 'Vers ta droite (il présente son bâbord)', ['Vers ta gauche', 'Il ne tourne pas', 'Il recule']],
+  ['Les deux feux de mât d\'un navire de face se décalent, le plus haut vers ta droite. Il est en train de…', 'Venir sur sa droite (son tribord) : il part vers ta gauche et te montre son feu rouge', ['Venir sur sa gauche (son bâbord) : il part vers ta droite', 'Garder exactement sa route', 'Reculer']],
   ['Un voilier sous voiles montre…', 'Ses feux de côté et son feu de poupe', ['Un feu de tête de mât, ses feux de côté et sa poupe', 'Un feu blanc tout horizon seul', 'Deux feux rouges']],
   ['Un voilier sous voiles montre-t-il un feu de tête de mât ?', 'Non, jamais', ['Oui, toujours', 'Seulement s\'il fait plus de 20 m', 'Seulement en mer']],
   ['Un voilier de moins de 20 m peut regrouper ses feux…', 'Dans un fanal tricolore en tête de mât', ['Dans un feu jaune', 'Dans un feu blanc tout horizon', 'Sur la bôme']],
